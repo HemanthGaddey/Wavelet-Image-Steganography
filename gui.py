@@ -1,100 +1,262 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog, QHBoxLayout, QComboBox, QSlider
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QPushButton, QWidget, QSlider, QHBoxLayout, QComboBox, QAction
+from PyQt5.QtGui import QPixmap, QImage, QPainter, QIcon
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QFileDialog
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
+import pywt
+import pywt.data
+import cv2
+from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import Qt
 
-
-class ImageApp(QWidget):
+class ImageBlenderGUI(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.initUI()
+        self.init_ui()
 
-    def initUI(self):
-        self.setWindowTitle('Image Viewer')
-        self.setGeometry(100, 100, 800, 600)
+        self.image3 = []
 
-        self.layout = QVBoxLayout()
+    def init_ui(self):
+        self.setWindowTitle("Image Blender")
+
+        central_widget = QWidget()
+        layout = QVBoxLayout()
 
         # Image labels
-        self.image_labels = [QLabel(), QLabel()]
-        for label in self.image_labels:
-            self.layout.addWidget(label)
+        image_layout = QHBoxLayout()
 
-        # Button to load images
-        self.load_button = QPushButton('Load Images')
-        self.load_button.clicked.connect(self.loadImages)
-        self.layout.addWidget(self.load_button)
+        self.image1_label = QLabel()
+        self.image2_label = QLabel()
+        self.image3_label = QLabel()
 
-        # Dropdown selection for third image
-        self.dropdown = QComboBox()
-        self.dropdown.addItem('Image 1')
-        self.dropdown.addItem('Image 2')
-        self.dropdown.currentIndexChanged.connect(self.updateThirdImage)
-        self.layout.addWidget(self.dropdown)
+        image_layout.addWidget(self.image1_label)
+        image_layout.addWidget(self.image2_label)
+        image_layout.addWidget(self.image3_label)
 
-        # Slider for image blending
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setMinimum(0)
-        self.slider.setMaximum(100)
-        self.slider.setValue(50)
-        self.slider.valueChanged.connect(self.blendImages)
-        self.layout.addWidget(self.slider)
+        layout.addLayout(image_layout)
 
-        # Label for third image
-        self.blended_image_label = QLabel()
-        self.layout.addWidget(self.blended_image_label)
+        # Slider
+        self.alpha_slider = QSlider(Qt.Horizontal)
+        self.alpha_slider.setMinimum(0)
+        self.alpha_slider.setMaximum(100)
+        self.alpha_slider.setValue(50)  # Initial value
+        self.alpha_slider.valueChanged.connect(self.update_alpha)
 
-        self.setLayout(self.layout)
+        layout.addWidget(self.alpha_slider)
 
-    def loadImages(self):
-        options = QFileDialog.Options()
-        options |= QFileDialog.DontUseNativeDialog
-        file_paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select Images", "", "Images (*.png *.jpg *.jpeg *.bmp *.gif)", options=options)
+        # Dropdown for wavelet functions
+        self.wavelet_dropdown = QComboBox()
+        self.wavelet_dropdown.addItems(["db1", "coif1", "rbio1.1"])
+        layout.addWidget(self.wavelet_dropdown)
 
-        if len(file_paths) >= 2:
-            self.images = [cv2.imread(file_paths[0]), cv2.imread(file_paths[1])]
-            self.displayImages()
+        # Buttons
+        self.save_image_button = QPushButton("Save Image")
+        self.save_image_button.clicked.connect(self.save_image)
+        layout.addWidget(self.save_image_button)
 
-    def displayImages(self):
-        for i, image in enumerate(self.images):
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            h, w, ch = image.shape
-            bytes_per_line = ch * w
-            q_img = QPixmap.fromImage(
-                QImage(image.data, w, h, bytes_per_line, QImage.Format_RGB888))
-            self.image_labels[i].setPixmap(q_img.scaled(400, 300, Qt.KeepAspectRatio))
+        self.load_image1_button = QPushButton("Load Cover Image")
+        self.load_image1_button.clicked.connect(self.load_image1)
+        layout.addWidget(self.load_image1_button)
 
-    def updateThirdImage(self, index):
-        if hasattr(self, 'images') and len(self.images) >= 2:
-            alpha = self.slider.value() / 100.0
-            blended_image = cv2.addWeighted(
-                self.images[0], alpha, self.images[1], (1 - alpha), 0)
-            if index == 0:
-                self.displayBlendedImage(self.images[0])
-            else:
-                self.displayBlendedImage(self.images[1])
+        self.load_image2_button = QPushButton("Load Payload Image")
+        self.load_image2_button.clicked.connect(self.load_image2)
+        layout.addWidget(self.load_image2_button)
 
-    def displayBlendedImage(self, image):
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        h, w, ch = image.shape
-        bytes_per_line = ch * w
-        q_img = QPixmap.fromImage(
-            QImage(image.data, w, h, bytes_per_line, QImage.Format_RGB888))
-        self.blended_image_label.setPixmap(q_img.scaled(400, 300, Qt.KeepAspectRatio))
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
 
-    def blendImages(self):
-        alpha = self.slider.value() / 100.0
-        blended_image = cv2.addWeighted(
-            self.images[0], alpha, self.images[1], (1 - alpha), 0)
-        self.displayBlendedImage(blended_image)
+    def load_image1(self):
+        filename, _ = QFileDialog.getOpenFileName(self, "Open Image 1", "", "Image Files (*.png *.jpg *.bmp)")
+        self.cover_img = cv2.resize(cv2.imread(filename), (256,256))
+        if filename:
+            self.image1 = QImage(filename).scaled(256, 256, Qt.KeepAspectRatio)
+            pixmap = QPixmap.fromImage(self.image1)
+            self.image1_label.setPixmap(pixmap)
+            self.image1_label.setScaledContents(True)
+
+    def load_image2(self):
+        filename, _ = QFileDialog.getOpenFileName(self, "Open Image 2", "", "Image Files (*.png *.jpg *.bmp)")
+        self.payload_img = cv2.resize(cv2.imread(filename), (256,256))
+        if filename:
+            self.image2 = QImage(filename).scaled(256, 256, Qt.KeepAspectRatio)
+            pixmap = QPixmap.fromImage(self.image2)
+            self.image2_label.setPixmap(pixmap)
+            self.image2_label.setScaledContents(True)
+
+    def update_alpha(self):
+        alpha = self.alpha_slider.value() / 100.0
+        # c_img = qimage_to_cvimage(self.image1)
+        # p_img = qimage_to_cvimage(self.image2)
+        # c_img = cv2.resize(c_img, (256,256))
+        # p_img = cv2.resize(p_img, (256,256))
+        s_img = get_stego_image(self.cover_img, self.payload_img, alpha)
+        print(s_img.dtype)
+        s_q_img = cvimage_to_qimage(s_img)
+        print(s_img)
+        #blended_image = self.blend_images(alpha)
+        pixmap = QPixmap.fromImage(s_q_img)
+        self.image3_label.setPixmap(pixmap)
+        self.image3_label.setScaledContents(True)
+
+    def blend_images(self, alpha):
+        blended = QImage(256, 256, QImage.Format_ARGB32)
+        painter = QPainter(blended)
+        painter.setCompositionMode(QPainter.CompositionMode_DestinationOver)
+        painter.setOpacity(alpha)
+        painter.drawImage(0, 0, self.image1)
+        painter.setOpacity(1.0 - alpha)
+        painter.drawImage(0, 0, self.image2)
+        painter.end()
+        return blended
+
+
+    def save_image(self):
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "PNG Files (*.png)")
+        if filename:
+            blended_image = self.blend_images(self.alpha_slider.value() / 100.0)
+            blended_image.save(filename)
+
+def qimage_to_cvimage(q_image):
+    q_image = q_image.convertToFormat(QImage.Format_RGB888)  # Convert QImage to RGB format
+    width = q_image.width()
+    height = q_image.height()
+
+    # Extract pixel data and construct OpenCV image
+    ptr = q_image.bits()
+    ptr.setsize(q_image.byteCount())
+    cv_image = np.array(ptr).reshape(height, width, 3)  # 3 for RGB channels
+
+    # Convert RGB to BGR (OpenCV uses BGR)
+    cv_image = cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
+
+    return cv_image
+
+def display_img(img,title='untitled'):
+    if(img.dtype != np.uint8):
+        img = cv2.normalize(img, None, 255,0, cv2.NORM_MINMAX, cv2.CV_8UC1) # To convert floating type images to uint8
+    cv2.imshow(title,img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    print('done')
+
+def cvimage_to_qimage(cv_image):
+    #display_img(cv_image, 'input')
+    # Check the depth of the image and convert if it's 64-bit float
+    if cv_image.dtype == np.float64:
+        cv_image = cv2.convertScaleAbs(cv_image)  # Convert to 8-bit depth
+
+    #display_img(cv_image, 'before scaleconv')
+    height, width, channels = cv_image.shape
+    bytes_per_line = channels * width
+    #cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)  # OpenCV uses BGR, converting to RGB
+    
+    #display_img(cv_image, 'after bgr2rgb')
+    # Create QImage from the OpenCV image data
+    qimage = QImage(cv_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
+    qimage = qimage.rgbSwapped()  # Swapping the red and blue channels for QImage compatibility
+
+    return qimage
+
+# def cvimage_to_qimage(cv_image):
+#     height, width, channels = cv_image.shape
+#     bytes_per_line = channels * width
+#     cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)  # OpenCV uses BGR, converting to RGB
+
+#     # Create QImage from the OpenCV image data
+#     qimage = QImage(cv_image.data, width, height, bytes_per_line, QImage.Format_RGB888)
+#     qimage = qimage.rgbSwapped()  # Swapping the red and blue channels for QImage compatibility
+
+#     return qimage
+
+def get_stego_image(cover_img, payload_img, alpha=0.01):
+    wavelet = 'haar'
+    
+    print(alpha)
+
+    ## Cover Image Pre-processing
+
+    # Convert to Floating Type
+    cover_imgf = cover_img.astype(np.float64)
+
+    # Separate RGB Components
+    separated_components = cv2.split(cover_imgf)
+    separated_components_c = separated_components
+
+    # Normalize RGB Components
+    normalized_components = []
+    for i in range(3):
+        normalized_components.append(separated_components[i]/255)
+        #normalized_components.append(separated_components[i]/np.max(separated_components[i]))
+
+    # DWT on Each Normalized Component
+    frequency_components_cover = []
+    for i in range(3):
+        frequency_components_cover.append(pywt.dwt2(normalized_components[i], wavelet))
+
+    ## Payload Image Pre-processing
+
+    # Convert to Floating Type
+    payload_imgf = payload_img.astype(np.float64)
+
+    # Separate RGB Components
+    separated_components = cv2.split(payload_imgf)
+
+    # Normalize RGB Components
+    normalized_components = []
+    for i in range(3):
+        normalized_components.append(separated_components[i]/255)
+        #normalized_components.append(separated_components[i]/np.max(separated_components[i]))
+
+    # DWT on Each Normalized Component
+    frequency_components_payload = []
+    for i in range(3):
+        frequency_components_payload.append(pywt.dwt2(normalized_components[i], wavelet))
+
+    a = alpha
+    frequency_fused_components = []
+    cc = frequency_components_cover
+    cp = frequency_components_payload
+    cs = []
+    for i in range(3):
+        # Fusion process using weighted combination of coefficients
+        cA_fused = cc[i][0] + a * (cp[i][0])
+        cH_fused = cc[i][1][0] + a * (cp[i][1][0])
+        cV_fused = cc[i][1][1] + a * (cp[i][1][1])
+        cD_fused = cc[i][1][2] + a * (cp[i][1][2])
+
+        # Append the tuple of approximation and details coefficients
+        cs.append((cA_fused, (cH_fused, cV_fused, cD_fused)))
+        
+    # Perform inverse DWT
+    fused_image_components = []
+    for i in range(3):
+        fused_image_components.append(pywt.idwt2(cs[i], wavelet))
+
+    stego_img = cv2.merge((
+        (fused_image_components[0] * np.max(separated_components_c[0])),
+        (fused_image_components[1] * np.max(separated_components_c[1])),
+        (fused_image_components[2] * np.max(separated_components_c[2]))
+    ))
+
+    stego_img = cv2.merge((
+        (fused_image_components[0] * 255),
+        (fused_image_components[1] * 255),
+        (fused_image_components[2] * 255),
+    ))
+
+    print(stego_img.dtype)
+    return stego_img
+
+def main():
+    app = QApplication(sys.argv)
+    window = ImageBlenderGUI()
+    window.show()
+    sys.exit(app.exec_())
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = ImageApp()
-    window.show()
-    sys.exit(app.exec_())
+    main()
