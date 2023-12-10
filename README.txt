@@ -1,0 +1,2 @@
+For checking the code please run test_code.ipynb first in a jupyter notebook so all the library dependencies are installed.
+Then for running the GUI HCSSD Encoder please run: "python ./gui.py", the video demonstration of the same is in "Video Demonstration of GUI Encoder.mp4".

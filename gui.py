@@ -17,11 +17,11 @@ class ImageBlenderGUI(QMainWindow):
         super().__init__()
 
         self.init_ui()
-
+        self.wavelet = 'haar'
         self.image3 = []
 
     def init_ui(self):
-        self.setWindowTitle("Image Blender")
+        self.setWindowTitle("Group 9 - Encoder")
 
         central_widget = QWidget()
         layout = QVBoxLayout()
@@ -50,7 +50,7 @@ class ImageBlenderGUI(QMainWindow):
 
         # Dropdown for wavelet functions
         self.wavelet_dropdown = QComboBox()
-        self.wavelet_dropdown.addItems(["db1", "coif1", "rbio1.1"])
+        self.wavelet_dropdown.addItems(["haar","db1", "coif1", "sym2", "dmey","bior1.1","rbio1.1"])
         layout.addWidget(self.wavelet_dropdown)
 
         # Buttons
@@ -93,13 +93,13 @@ class ImageBlenderGUI(QMainWindow):
         # p_img = qimage_to_cvimage(self.image2)
         # c_img = cv2.resize(c_img, (256,256))
         # p_img = cv2.resize(p_img, (256,256))
-        s_img = get_stego_image(self.cover_img, self.payload_img, alpha)
+        s_img = self.get_stego_image(self.cover_img, self.payload_img, alpha)
         print(s_img.dtype)
         s_q_img = cvimage_to_qimage(s_img)
         print(s_img)
         #blended_image = self.blend_images(alpha)
-        pixmap = QPixmap.fromImage(s_q_img)
-        self.image3_label.setPixmap(pixmap)
+        self.pixmap = QPixmap.fromImage(s_q_img)
+        self.image3_label.setPixmap(self.pixmap)
         self.image3_label.setScaledContents(True)
 
     def blend_images(self, alpha):
@@ -117,8 +117,86 @@ class ImageBlenderGUI(QMainWindow):
     def save_image(self):
         filename, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "PNG Files (*.png)")
         if filename:
-            blended_image = self.blend_images(self.alpha_slider.value() / 100.0)
-            blended_image.save(filename)
+            self.pixmap.save(filename)
+    
+    def get_stego_image(self,cover_img, payload_img, alpha=0.01):
+        wavelet = self.wavelet_dropdown.currentText()
+        
+        print(alpha)
+
+        ## Cover Image Pre-processing
+
+        # Convert to Floating Type
+        cover_imgf = cover_img.astype(np.float64)
+
+        # Separate RGB Components
+        separated_components = cv2.split(cover_imgf)
+        separated_components_c = separated_components
+
+        # Normalize RGB Components
+        normalized_components = []
+        for i in range(3):
+            normalized_components.append(separated_components[i]/255)
+            #normalized_components.append(separated_components[i]/np.max(separated_components[i]))
+
+        # DWT on Each Normalized Component
+        frequency_components_cover = []
+        for i in range(3):
+            frequency_components_cover.append(pywt.dwt2(normalized_components[i], wavelet))
+
+        ## Payload Image Pre-processing
+
+        # Convert to Floating Type
+        payload_imgf = payload_img.astype(np.float64)
+
+        # Separate RGB Components
+        separated_components = cv2.split(payload_imgf)
+
+        # Normalize RGB Components
+        normalized_components = []
+        for i in range(3):
+            normalized_components.append(separated_components[i]/255)
+            #normalized_components.append(separated_components[i]/np.max(separated_components[i]))
+
+        # DWT on Each Normalized Component
+        frequency_components_payload = []
+        for i in range(3):
+            frequency_components_payload.append(pywt.dwt2(normalized_components[i], wavelet))
+
+        a = alpha
+        frequency_fused_components = []
+        cc = frequency_components_cover
+        cp = frequency_components_payload
+        cs = []
+        for i in range(3):
+            # Fusion process using weighted combination of coefficients
+            cA_fused = cc[i][0] + a * (cp[i][0])
+            cH_fused = cc[i][1][0] + a * (cp[i][1][0])
+            cV_fused = cc[i][1][1] + a * (cp[i][1][1])
+            cD_fused = cc[i][1][2] + a * (cp[i][1][2])
+
+            # Append the tuple of approximation and details coefficients
+            cs.append((cA_fused, (cH_fused, cV_fused, cD_fused)))
+            
+        # Perform inverse DWT
+        fused_image_components = []
+        for i in range(3):
+            fused_image_components.append(pywt.idwt2(cs[i], wavelet))
+
+        stego_img = cv2.merge((
+            (fused_image_components[0] * np.max(separated_components_c[0])),
+            (fused_image_components[1] * np.max(separated_components_c[1])),
+            (fused_image_components[2] * np.max(separated_components_c[2]))
+        ))
+
+        stego_img = cv2.merge((
+            (fused_image_components[0] * 255),
+            (fused_image_components[1] * 255),
+            (fused_image_components[2] * 255),
+        ))
+
+        print(stego_img.dtype)
+        return stego_img
 
 def qimage_to_cvimage(q_image):
     q_image = q_image.convertToFormat(QImage.Format_RGB888)  # Convert QImage to RGB format
@@ -149,6 +227,7 @@ def cvimage_to_qimage(cv_image):
     if cv_image.dtype == np.float64:
         cv_image = cv2.convertScaleAbs(cv_image)  # Convert to 8-bit depth
 
+
     #display_img(cv_image, 'before scaleconv')
     height, width, channels = cv_image.shape
     bytes_per_line = channels * width
@@ -172,84 +251,6 @@ def cvimage_to_qimage(cv_image):
 
 #     return qimage
 
-def get_stego_image(cover_img, payload_img, alpha=0.01):
-    wavelet = 'haar'
-    
-    print(alpha)
-
-    ## Cover Image Pre-processing
-
-    # Convert to Floating Type
-    cover_imgf = cover_img.astype(np.float64)
-
-    # Separate RGB Components
-    separated_components = cv2.split(cover_imgf)
-    separated_components_c = separated_components
-
-    # Normalize RGB Components
-    normalized_components = []
-    for i in range(3):
-        normalized_components.append(separated_components[i]/255)
-        #normalized_components.append(separated_components[i]/np.max(separated_components[i]))
-
-    # DWT on Each Normalized Component
-    frequency_components_cover = []
-    for i in range(3):
-        frequency_components_cover.append(pywt.dwt2(normalized_components[i], wavelet))
-
-    ## Payload Image Pre-processing
-
-    # Convert to Floating Type
-    payload_imgf = payload_img.astype(np.float64)
-
-    # Separate RGB Components
-    separated_components = cv2.split(payload_imgf)
-
-    # Normalize RGB Components
-    normalized_components = []
-    for i in range(3):
-        normalized_components.append(separated_components[i]/255)
-        #normalized_components.append(separated_components[i]/np.max(separated_components[i]))
-
-    # DWT on Each Normalized Component
-    frequency_components_payload = []
-    for i in range(3):
-        frequency_components_payload.append(pywt.dwt2(normalized_components[i], wavelet))
-
-    a = alpha
-    frequency_fused_components = []
-    cc = frequency_components_cover
-    cp = frequency_components_payload
-    cs = []
-    for i in range(3):
-        # Fusion process using weighted combination of coefficients
-        cA_fused = cc[i][0] + a * (cp[i][0])
-        cH_fused = cc[i][1][0] + a * (cp[i][1][0])
-        cV_fused = cc[i][1][1] + a * (cp[i][1][1])
-        cD_fused = cc[i][1][2] + a * (cp[i][1][2])
-
-        # Append the tuple of approximation and details coefficients
-        cs.append((cA_fused, (cH_fused, cV_fused, cD_fused)))
-        
-    # Perform inverse DWT
-    fused_image_components = []
-    for i in range(3):
-        fused_image_components.append(pywt.idwt2(cs[i], wavelet))
-
-    stego_img = cv2.merge((
-        (fused_image_components[0] * np.max(separated_components_c[0])),
-        (fused_image_components[1] * np.max(separated_components_c[1])),
-        (fused_image_components[2] * np.max(separated_components_c[2]))
-    ))
-
-    stego_img = cv2.merge((
-        (fused_image_components[0] * 255),
-        (fused_image_components[1] * 255),
-        (fused_image_components[2] * 255),
-    ))
-
-    print(stego_img.dtype)
-    return stego_img
 
 def main():
     app = QApplication(sys.argv)
